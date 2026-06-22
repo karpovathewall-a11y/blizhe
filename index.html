@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ближе — игра в вопросы</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Inter:wght@400;500;600&display=swap&subset=cyrillic,cyrillic-ext" rel="stylesheet">
+<style>
+  :root{
+    --cream:#F7ECEF;
+    --cream-dim:rgba(247,236,239,.66);
+    --cream-faint:rgba(247,236,239,.30);
+    /* c1 = bright pink glow, c2 = mid rose, c3 = deep base, c4 = accent bloom */
+    --c1:#F8A6C0; --c2:#E15B86; --c3:#B22F5E; --c4:#FF7FA8;
+    --serif:"Playfair Display",Georgia,"Times New Roman",serif;
+    --sans:"Inter",-apple-system,system-ui,sans-serif;
+  }
+  /* depth in color: a flirty pink up top, sinking toward deep berry/plum
+     as the questions get more intimate */
+  body[data-level="1"]{--c1:#FFCEDD;--c2:#F2728F;--c3:#D85C7E;--c4:#FF99B6;}
+  body[data-level="2"]{--c1:#FF5CA8;--c2:#D81B6A;--c3:#8E0E4C;--c4:#FF3D8F;}
+  body[data-level="3"]{--c1:#F25CB0;--c2:#B0246F;--c3:#6E1A4E;--c4:#D63A8E;}
+
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--sans);
+    color:var(--cream);
+    background:
+      radial-gradient(70% 55% at 80% 8%, var(--c1) 0%, transparent 52%),
+      radial-gradient(85% 65% at 12% 18%, var(--c4) 0%, transparent 48%),
+      radial-gradient(120% 90% at 50% 108%, var(--c3) 0%, transparent 60%),
+      radial-gradient(110% 80% at 95% 95%, var(--c2) 0%, transparent 55%),
+      linear-gradient(155deg, var(--c2) 0%, var(--c3) 70%, var(--c3) 100%);
+    background-attachment:fixed;
+    min-height:100dvh;
+    transition:background .9s ease;
+    -webkit-tap-highlight-color:transparent;
+    overflow:hidden;
+  }
+  /* joker: a fiery ember palette that overrides the level color */
+  body[data-wild="1"]{
+    background:
+      radial-gradient(70% 50% at 50% 116%, #FFC24D 0%, transparent 46%),
+      radial-gradient(60% 46% at 22% 110%, #FF7A1A 0%, transparent 50%),
+      radial-gradient(60% 46% at 80% 112%, #FF4D12 0%, transparent 50%),
+      radial-gradient(90% 70% at 50% 0%, #B0331A 0%, transparent 55%),
+      linear-gradient(180deg, #5E1606 0%, #210800 100%);
+  }
+  /* flickering flames that only show during a joker */
+  .fire{
+    position:fixed;left:0;right:0;bottom:0;height:62%;
+    pointer-events:none;opacity:0;z-index:0;transform-origin:bottom center;
+    background:
+      radial-gradient(50% 60% at 50% 100%, rgba(255,196,70,.5), transparent 70%),
+      radial-gradient(38% 55% at 22% 100%, rgba(255,110,20,.45), transparent 72%),
+      radial-gradient(38% 55% at 78% 100%, rgba(255,70,10,.45), transparent 72%);
+    mix-blend-mode:screen;transition:opacity .5s ease;
+  }
+  body[data-wild="1"] .fire{opacity:1;animation:flicker 2.4s ease-in-out infinite;}
+  @keyframes flicker{
+    0%,100%{transform:translateY(0) scaleY(1);opacity:.95;}
+    20%{transform:translateY(-2%) scaleY(1.06);opacity:1;}
+    45%{transform:translateY(1%) scaleY(.95);opacity:.82;}
+    70%{transform:translateY(-1%) scaleY(1.04);opacity:.92;}
+  }
+  /* intro: the "tap to begin" state — same level color as the questions,
+     only the prompt text is styled as an instruction */
+  body[data-intro="1"] .question{
+    font-family:var(--sans);font-weight:500;
+    font-size:clamp(16px,4.4vw,21px);line-height:1.55;letter-spacing:.02em;
+    color:var(--cream-dim);animation:breathe 2.8s ease-in-out infinite;
+  }
+  body[data-intro="1"] .footer{visibility:hidden;}
+  .screen{
+    position:fixed;inset:0;
+    display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    padding:max(28px,env(safe-area-inset-top)) 24px max(28px,env(safe-area-inset-bottom));
+    opacity:0;visibility:hidden;transform:translateY(8px);
+    transition:opacity .5s ease,transform .5s ease,visibility .5s;
+  }
+  .screen.active{opacity:1;visibility:visible;transform:none;}
+
+  /* ---------- start ---------- */
+  .brand{font-family:var(--serif);font-weight:600;font-size:clamp(48px,14vw,86px);line-height:.95;letter-spacing:-.01em;}
+  .tagline{margin-top:14px;font-size:14px;letter-spacing:.18em;text-transform:uppercase;color:var(--cream-dim);font-weight:500;}
+  .levels{margin-top:48px;display:flex;flex-direction:column;gap:14px;width:100%;max-width:380px;}
+  .level{
+    text-align:left;cursor:pointer;color:var(--cream);
+    background:rgba(247,236,239,.07);
+    border:1px solid var(--cream-faint);
+    border-radius:18px;padding:18px 20px;
+    display:grid;grid-template-columns:auto 1fr;column-gap:16px;align-items:center;
+    transition:background .25s,border-color .25s,transform .15s;
+    font:inherit;
+  }
+  .level:hover,.level:focus-visible{background:rgba(247,236,239,.13);border-color:var(--cream-dim);outline:none;}
+  .level:active{transform:scale(.99);}
+  .level .num{font-family:var(--serif);font-size:34px;line-height:1;font-weight:500;opacity:.5;min-width:26px;text-align:center;}
+  .level .name{font-size:20px;font-weight:600;letter-spacing:.005em;}
+  .level .desc{
+    grid-column:2;font-size:13px;color:var(--cream-dim);line-height:1.4;
+    margin-top:8px;padding-top:8px;border-top:1px solid var(--cream-faint);
+  }
+
+  /* ---------- players ---------- */
+  .step-label{font-size:13px;letter-spacing:.18em;text-transform:uppercase;color:var(--cream-dim);font-weight:500;}
+  .step-title{font-family:var(--serif);font-size:clamp(30px,8vw,46px);font-weight:500;margin-top:10px;text-align:center;}
+  .players{margin-top:40px;display:flex;gap:14px;}
+  .pcount{
+    width:74px;height:74px;border-radius:50%;cursor:pointer;color:var(--cream);
+    background:rgba(247,236,239,.06);border:1px solid var(--cream-faint);
+    font-family:var(--serif);font-size:30px;font-weight:500;
+    transition:background .25s,border-color .25s,transform .15s;
+  }
+  .pcount:hover,.pcount:focus-visible{background:rgba(247,236,239,.14);border-color:var(--cream-dim);outline:none;}
+  .pcount:active{transform:scale(.94);}
+  .pcaption{margin-top:18px;font-size:13px;color:var(--cream-faint);}
+
+  .back{
+    position:absolute;top:max(20px,env(safe-area-inset-top));left:20px;
+    background:none;border:none;color:var(--cream-dim);font:inherit;font-size:14px;
+    cursor:pointer;padding:8px;display:flex;align-items:center;gap:6px;
+    transition:color .2s;z-index:5;
+  }
+  .back:hover,.back:focus-visible{color:var(--cream);outline:none;}
+
+  /* ---------- game ---------- */
+  #game{cursor:pointer;justify-content:space-between;padding-top:0;padding-bottom:0;}
+  #game .back{position:static;top:auto;left:auto;padding:8px 8px 8px 0;align-self:flex-start;}
+  .topbar{
+    width:100%;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+    padding:max(22px,env(safe-area-inset-top)) 4px 0;
+    font-size:13px;color:var(--cream-dim);
+  }
+  .topinfo{display:flex;flex-direction:column;align-items:flex-end;gap:5px;text-align:right;}
+  .lvl-pill{letter-spacing:.06em;}
+  .turn{
+    font-family:var(--serif);font-weight:600;color:var(--cream);
+    font-size:15px;letter-spacing:.01em;
+  }
+  .turn .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--cream);margin-right:8px;vertical-align:middle;opacity:.85;}
+  .card{
+    flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:22px;width:100%;max-width:640px;
+  }
+  .wild-label{
+    display:none;font-family:var(--sans);font-size:12px;font-weight:700;
+    letter-spacing:.28em;text-transform:uppercase;color:#FFE0A3;
+    padding:7px 16px;border-radius:999px;
+    border:1px solid rgba(255,180,90,.6);
+    background:linear-gradient(135deg, rgba(255,140,20,.28), rgba(255,70,10,.18));
+    box-shadow:0 0 24px rgba(255,120,20,.4);
+  }
+  body[data-wild="1"] .wild-label{display:inline-flex;align-items:center;}
+  .question{
+    font-family:var(--serif);font-weight:500;
+    font-size:clamp(28px,6.4vw,46px);line-height:1.22;text-align:center;
+    text-wrap:balance;
+  }
+  .question.draw{animation:rise .55s cubic-bezier(.2,.7,.2,1);}
+  @keyframes rise{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:none;}}
+  .footer{
+    width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    padding:0 4px max(26px,env(safe-area-inset-bottom));
+    font-size:13px;color:var(--cream-faint);
+  }
+  .skip{
+    background:rgba(247,236,239,.08);border:1px solid var(--cream-faint);
+    color:var(--cream-dim);font:inherit;font-size:13px;
+    padding:9px 15px;border-radius:999px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:7px;
+    transition:background .2s,border-color .2s,color .2s,transform .12s;
+  }
+  .skip:hover,.skip:focus-visible{background:rgba(247,236,239,.16);border-color:var(--cream-dim);color:var(--cream);outline:none;}
+  .skip:active{transform:scale(.96);}
+  .skip .ic{font-size:15px;line-height:1;}
+  .hint{display:flex;align-items:center;gap:8px;animation:breathe 2.6s ease-in-out infinite;}
+  @keyframes breathe{0%,100%{opacity:.45}50%{opacity:.85}}
+  .counter{font-variant-numeric:tabular-nums;margin-left:auto;}
+
+  /* ---------- end of level ---------- */
+  .end-title{font-family:var(--serif);font-weight:600;font-size:clamp(40px,12vw,72px);line-height:.98;text-align:center;letter-spacing:-.01em;}
+  .end-sub{margin-top:20px;max-width:440px;text-align:center;font-size:15px;line-height:1.55;color:var(--cream-dim);}
+  .end-actions{margin-top:42px;display:flex;flex-direction:column;gap:12px;width:100%;max-width:320px;}
+  .btn{font:inherit;font-size:16px;font-weight:600;padding:15px 22px;border-radius:999px;cursor:pointer;transition:background .2s,border-color .2s,color .2s,transform .12s;}
+  .btn:active{transform:scale(.98);}
+  .btn.primary{background:var(--cream);color:#8E1E48;border:1px solid var(--cream);}
+  .btn.primary:hover,.btn.primary:focus-visible{background:#fff;outline:none;}
+  .btn.ghost{background:transparent;color:var(--cream);border:1px solid var(--cream-faint);}
+  .btn.ghost:hover,.btn.ghost:focus-visible{border-color:var(--cream-dim);background:rgba(247,236,239,.08);outline:none;}
+
+  @media (prefers-reduced-motion: reduce){
+    *{animation:none!important;transition:opacity .2s ease!important;}
+    body{transition:background .2s ease;}
+  }
+</style>
+</head>
+<body data-level="1">
+  <div class="fire" aria-hidden="true"></div>
+
+  <!-- START -->
+  <section class="screen active" id="start">
+    <div class="brand">Ближе</div>
+    <div class="tagline">три уровня откровенности</div>
+    <div class="levels">
+      <button class="level" data-level="1">
+        <span class="num">1</span>
+        <span class="name">Знакомство</span>
+        <span class="desc">Присмотреться друг к другу.</span>
+      </button>
+      <button class="level" data-level="2">
+        <span class="num">2</span>
+        <span class="name">Связь</span>
+        <span class="desc">Про чувства, страхи и важные моменты.</span>
+      </button>
+      <button class="level" data-level="3">
+        <span class="num">3</span>
+        <span class="name">Откровение</span>
+        <span class="desc">Только для тех, кому доверяешь.</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- PLAYERS -->
+  <section class="screen" id="players">
+    <button class="back" id="backToStart">← назад</button>
+    <div class="step-label">Уровень <span id="chosenLevel">1</span></div>
+    <div class="step-title">Сколько вас?</div>
+    <div class="players">
+      <button class="pcount" data-n="1">1</button>
+      <button class="pcount" data-n="2">2</button>
+      <button class="pcount" data-n="3">3</button>
+      <button class="pcount" data-n="4">4</button>
+    </div>
+    <div class="pcaption">Ход переходит по кругу после каждого вопроса.</div>
+  </section>
+
+  <!-- GAME -->
+  <section class="screen" id="game">
+    <div class="topbar">
+      <button class="back" id="backToMenu">← меню</button>
+      <div class="topinfo">
+        <span class="lvl-pill" id="lvlPill"></span>
+        <span class="turn" id="turn"></span>
+      </div>
+    </div>
+    <div class="card">
+      <span class="wild-label" id="wildLabel">Джокер</span>
+      <div class="question" id="question">Нажми, чтобы открыть первый вопрос</div>
+    </div>
+    <div class="footer">
+      <button class="skip" id="skip"><span class="ic">↻</span> другой вопрос</button>
+      <span class="counter" id="counter"></span>
+    </div>
+  </section>
+
+  <!-- END -->
+  <section class="screen" id="end">
+    <div class="end-title">Вопросы<br>закончились</div>
+    <div class="end-sub">Вы прошли весь уровень «<span id="endLevel">Знакомство</span>». Можно начать заново — колода перетасуется по-новому — или вернуться в меню.</div>
+    <div class="end-actions">
+      <button class="btn primary" id="restart">Начать сначала</button>
+      <button class="btn ghost" id="toMenu">Вернуться в меню</button>
+    </div>
+  </section>
+
+<script>
+const QUESTIONS = {
+  1: [
+    "Какое у тебя сейчас настроение по шкале от 1 до 10?",
+    "Что первым бросилось тебе в глаза в человеке напротив?",
+    "Как думаешь, я жаворонок или сова?",
+    "Какая песня сейчас крутится у тебя в голове?",
+    "Опиши себя тремя словами.",
+    "Что тебя сегодня порадовало?",
+    "Куда бы ты отправился прямо сейчас, если бы умел телепортироваться?",
+    "Какое блюдо ты готовишь лучше всего?",
+    "Какой фильм ты можешь пересматривать бесконечно?",
+    "О чём ты мечтал в десять лет?",
+    "Что бы ты сделал первым делом, если бы выиграл миллион?",
+    "Какое слово ты используешь слишком часто?",
+    "Какой навык ты хотел бы освоить?",
+    "Что бы ты взял с собой на необитаемый остров?",
+    "Как ты любишь восстанавливаться после тяжёлого дня?",
+    "Какое место ты называешь домом?",
+    "Если бы ты был животным — то каким?",
+    "Что ты коллекционировал в детстве?",
+    "Чай или кофе, и почему именно так?",
+    "Какая мелочь способна испортить тебе день?",
+    "Что для тебя идеальное утро?",
+    "Какой запах мгновенно возвращает тебя в прошлое?",
+    "Чем бы ты занялся, если бы деньги были не нужны?",
+    "Что в тебе удивило бы человека, который видит тебя впервые?",
+    "Какой у тебя любимый праздник и почему?",
+    "Что ты обычно заказываешь в кафе?",
+    "Какую суперсилу ты бы выбрал?",
+    "Что ты делаешь, когда не можешь уснуть?",
+    "Какая книга или фильм изменили твой взгляд на что-то?",
+    "Какое место в городе ты любишь больше всего?",
+    "С какого возраста ты помнишь себя?",
+    "Какой у тебя был любимый мультфильм в детстве?",
+    "Что ты всегда носишь с собой?",
+    "Какой сериал ты пересматривал не раз?",
+    "Что бы ты сделал, если бы у тебя был лишний свободный день?",
+    "Кем ты хотел стать в детстве?",
+    "Какая еда напоминает тебе о доме?",
+    "Что тебя смешит, даже когда не должно?",
+    "Какое твоё маленькое ежедневное удовольствие?",
+    "Что ты делаешь лучше большинства людей?",
+    "Какую песню ты бы поставил на повтор на весь день?",
+    "Какое место ты мечтаешь однажды увидеть?",
+    "Какой совет тебе когда-то дали, и ты его запомнил?",
+    "Что ты обычно делаешь первым делом, проснувшись?",
+    "Какой подарок тебе запомнился больше всего?",
+    "Если бы тебе дали микрофон на стадионе, что бы ты сказал?",
+    "Какая твоя самая бесполезная, но любимая способность?",
+    "Какой фильм заставил тебя смеяться до слёз?",
+    "Что ты коллекционируешь сейчас, пусть даже неосознанно?",
+    "Какую привычку ты хотел бы завести?",
+    "Чем тебе нравится заниматься в одиночестве?",
+    "Какое время суток твоё любимое?",
+    "Что ты всегда готов есть, в любой момент?",
+    "Какой звук тебя успокаивает?",
+    "Какой у тебя самый странный страх?",
+    "Что бы ты сказал себе вчерашнему?",
+    "Какое слово в другом языке тебе нравится?",
+    "Какая погода идеально подходит твоему настроению?",
+    "Что ты делаешь, чтобы поднять себе настроение?",
+    "Какой фильм или сериал ты советуешь всем подряд?",
+    "Куда ты пошёл бы на идеальное первое свидание?",
+    "Что бы ты добавил в свою жизнь, будь у тебя больше времени?",
+    "Какая мелочь делает день хорошим?",
+    "Что ты обычно делаешь в дороге?",
+    "Какую вещь ты хранишь, хотя она давно не нужна?",
+    "О чём ты можешь говорить часами?",
+    "Какой комплимент тебе приятнее всего слышать?",
+    "Что тебя вдохновляет в обычные дни?",
+    "Какое блюдо ты бы ел каждый день, не уставая?",
+    "Какой фильм идеально подходит под дождливый вечер?",
+    "Что ты делаешь, когда тебе скучно?",
+    "Какую игру ты любил в детстве?",
+    "Что ты считаешь маленькой роскошью?",
+    "Какое место заставляет тебя чувствовать себя спокойно?",
+    "Если бы у тебя был свой ресторан, что бы там подавали?",
+    "Какой у тебя любимый способ передвижения?",
+    "Что ты обычно фотографируешь?",
+    "Какая фраза или цитата тебе нравится?",
+    "Что тебя удивило за последнюю неделю?",
+    "Какой твой любимый запах?",
+    "Что бы ты хотел уметь делать руками?",
+    "Какой подарок ты мечтал получить в детстве?",
+    "Что ты делаешь, чтобы расслабиться вечером?",
+    "Какую музыку ты слушаешь, когда грустно?",
+    "Какое блюдо у тебя ассоциируется с праздником?",
+    "Что ты любишь в своём городе?",
+    "Какой фильм ты бы показал инопланетянину про людей?",
+    "Что бы ты делал, если бы не нужно было спать?",
+    "Какая вещь в твоём доме самая любимая?",
+    "Какой у тебя был самый запоминающийся отпуск?",
+    "Что ты делаешь по утрам в выходные?",
+    "Какую традицию ты хотел бы завести?",
+    "Что заставляет тебя улыбнуться без причины?",
+    "Какой у тебя любимый жанр в кино?",
+    "Что ты обычно ищешь в интернете поздно ночью?",
+    "Какую вещь ты бы спас из горящего дома (кроме живых)?",
+    "Что тебе нравится в людях с первого взгляда?",
+    "Какое хобби ты хотел бы попробовать?",
+    "Какой день недели тебе нравится больше всего?",
+    "Что для тебя значит хорошо провести вечер?",
+    "Какой у тебя любимый вид транспорта в путешествии?",
+    "Что ты обычно напеваешь себе под нос?",
+    "Какую мелочь ты считаешь признаком уюта?",
+    "Что ты любишь делать, когда никто не видит?",
+    "Какое воспоминание из детства вызывает у тебя улыбку?",
+    "Сделай обо мне любое предположение — каким бы оно ни было.",
+    "Как думаешь, в чём я был успешнее всего в школе?",
+    "Каким ребёнком я был, по-твоему?",
+    "Как думаешь, я интроверт или экстраверт?",
+    "Какое первое впечатление я на тебя произвёл?",
+    "Как думаешь, чем я люблю заниматься в свободное время?",
+    "Каким, по-твоему, был мой любимый школьный предмет?",
+    "Как думаешь, я скорее мечтатель или реалист?",
+    "Что, по-твоему, я делаю, когда сильно нервничаю?",
+    "Как думаешь, что меня легче всего может рассмешить?",
+    "Каким, по-твоему, я буду через десять лет?",
+    "Как думаешь, на какое животное я похож по характеру?",
+    "Какую музыку, по-твоему, я слушаю чаще всего?",
+    "Что, как тебе кажется, я ценю в людях больше всего?",
+    "Какое хобби, по-твоему, мне бы подошло?",
+    "Как думаешь, что во мне удивило бы тех, кто знает меня плохо?"
+  ],
+  2: [
+    "Что в твоей жизни сейчас приносит тебе больше всего радости?",
+    "Когда ты в последний раз по-настоящему гордился собой?",
+    "Что ты ценишь в людях больше всего?",
+    "О каком своём решении ты до сих пор думаешь?",
+    "Кто повлиял на тебя сильнее всех?",
+    "В какой момент ты почувствовал, что повзрослел?",
+    "Что тебе сложнее всего прощать?",
+    "Какую часть себя ты прячешь от других?",
+    "Когда ты в последний раз смеялся так, что не мог остановиться?",
+    "Что бы ты сказал себе пятнадцатилетнему?",
+    "Что в твоей жизни сейчас на своём месте?",
+    "За что ты благодарен прямо в эту минуту?",
+    "Что для тебя значит настоящая дружба?",
+    "Какая ошибка научила тебя большему всего?",
+    "Когда ты в последний раз выходил из зоны комфорта?",
+    "Что заставляет тебя чувствовать себя живым?",
+    "Что хорошее ты давно хотел сказать близкому человеку?",
+    "О какой мечте ты думаешь чаще всего?",
+    "Какой комплимент ты запомнил на всю жизнь?",
+    "В чём ты за последнее время стал увереннее?",
+    "За какое своё решение ты себе благодарен?",
+    "Кому ты давно хотел сказать «спасибо», но не сказал?",
+    "Что в тебе изменилось за последний год?",
+    "Когда ты в последний раз чувствовал себя по-настоящему понятым?",
+    "Что для тебя значит быть взрослым?",
+    "Что хорошего ты перенял от родителей?",
+    "О чём ты мечтаешь, но стесняешься говорить вслух?",
+    "Что заставляет тебя чувствовать себя любимым в отношениях?",
+    "Когда ты в последний раз чувствовал себя свободным?",
+    "Какую роль ты играешь в своей семье?",
+    "Что ты хотел бы изменить в себе?",
+    "Какое качество ты больше всего ценишь в близком человеке?",
+    "Что для тебя значит дом — не место, а ощущение?",
+    "Когда ты в последний раз делал что-то впервые?",
+    "Чему тебя научил человек, которым ты восхищаешься?",
+    "Что бы ты хотел услышать от родителей?",
+    "Как ты понимаешь, что человеку можно доверять?",
+    "Что или кто помогает тебе вернуть хорошее настроение?",
+    "Какой свой выбор ты считаешь самым смелым?",
+    "О чём ты можешь говорить с близкими бесконечно?",
+    "О чём ты думаешь перед сном чаще всего?",
+    "Что тебя по-настоящему успокаивает в трудные моменты?",
+    "Какую черту характера ты в себе скрываешь?",
+    "Когда ты последний раз гордился кем-то близким?",
+    "Что ты считаешь своим самым большим достижением?",
+    "Какой период жизни ты хотел бы прожить снова?",
+    "Что для тебя значит быть нужным?",
+    "Чего ты ждёшь от дружбы, но редко получаешь?",
+    "Чем ты в себе тихо гордишься?",
+    "Когда ты в последний раз чувствовал себя счастливым по-настоящему?",
+    "Что бы ты хотел, чтобы люди понимали о тебе?",
+    "Какую маленькую радость ты бережёшь только для себя?",
+    "Что для тебя значит любить кого-то?",
+    "Какой урок жизнь повторяет тебе снова и снова?",
+    "Ради кого ты с радостью готов стараться больше всего?",
+    "С кем тебе хорошо даже в полной тишине?",
+    "Чего ты с нетерпением ждёшь в будущем?",
+    "Какую часть детства ты хотел бы вернуть?",
+    "Что наполняет тебя, когда ты проводишь время наедине с собой?",
+    "Какое решение далось тебе труднее всего?",
+    "Что для тебя признак настоящей близости?",
+    "О чём ты молчишь в кругу друзей?",
+    "Что тебе нужно, чтобы почувствовать себя в безопасности?",
+    "Кем ты гордишься в своей семье и почему?",
+    "Что ты понял о любви только с возрастом?",
+    "Какая твоя мечта изменилась со временем?",
+    "Что ты прощаешь людям легче всего?",
+    "Когда ты в последний раз почувствовал, что кому-то по-настоящему важен?",
+    "Что заставляет тебя чувствовать себя сильным?",
+    "Какой совет ты бы дал тому, кто проходит через то, что прошёл ты?",
+    "Что для тебя самое ценное в близких отношениях?",
+    "Чем тебе стоило бы гордиться чуть больше?",
+    "Как ты понимаешь, что тебя любят?",
+    "Когда ты в последний раз чувствовал гордость без вины?",
+    "Что значит для тебя быть собой рядом с другими?",
+    "Какой разговор согрел тебя надолго?",
+    "Что придаёт тебе сил в трудные дни?",
+    "Что помогает тебе жить так, как хочется?",
+    "Что ты ищешь в людях, которых впускаешь близко?",
+    "Когда ты в последний раз чувствовал, что меняешься?",
+    "Какие тёплые слова ты хотел бы говорить чаще?",
+    "Какую роль в твоей жизни играет дружба?",
+    "Что ты считаешь своей самой сильной стороной?",
+    "Что для тебя значит дом в людях, а не в стенах?",
+    "Когда ты в последний раз был по-настоящему честен с собой?",
+    "К кому ты идёшь, когда тебе нужна поддержка?",
+    "Какой момент сделал тебя тем, кто ты есть?",
+    "Что тебе важнее: быть понятым или быть принятым?",
+    "О чём ты мечтал, но передумал, и жалеешь ли об этом?",
+    "Что ты хотел бы, чтобы кто-то заметил в тебе?",
+    "Какая встреча изменила тебя сильнее всего?",
+    "Что для тебя значит прощение?",
+    "Что важное ты недавно решился сделать?",
+    "Когда ты в последний раз чувствовал себя живым рядом с человеком?",
+    "Что хорошее ты хотел бы впустить в свою жизнь?",
+    "Что хорошее ты, сам того не замечая, даёшь другим?",
+    "Что тебе помогает поверить в себя?",
+    "Кого ты хотел бы простить — себя или кого-то другого?",
+    "Что для тебя значит быть хорошим человеком?",
+    "Когда ты в последний раз чувствовал, что тебя по-настоящему слышат?",
+    "Что ты хотел бы изменить в отношениях с самым близким человеком?",
+    "Что помогает тебе открыться человеку?",
+    "Какую мечту ты держишь в тайне даже от близких?",
+    "Что для тебя значит быть честным с тем, кого любишь?",
+    "Какой момент дружбы ты хотел бы сохранить навсегда?",
+    "Как думаешь, какой у меня самый большой страх?",
+    "Что, по-твоему, я в себе недооцениваю?",
+    "Как думаешь, чего мне не хватает, чтобы чувствовать себя счастливее?",
+    "Что, как тебе кажется, делает меня по-настоящему счастливым?",
+    "Как думаешь, что я ценю в близких отношениях больше всего?",
+    "Каким я кажусь со стороны — и совпадает ли это с тем, какой я внутри?"
+  ],
+  3: [
+    "Что ты хотел бы, чтобы я о тебе запомнил?",
+    "Чего ты на самом деле хочешь, но боишься признаться даже себе?",
+    "Какую правду о себе тебе тяжелее всего принять?",
+    "Что осталось недосказанным с тем, кого больше нет рядом?",
+    "Когда ты в последний раз чувствовал себя одиноким среди людей?",
+    "Что бы ты хотел услышать от того, кто тебя любит?",
+    "Что тебе нужно отпустить, чтобы двигаться дальше?",
+    "За что ты до сих пор себя не простил?",
+    "Какой момент своей жизни ты хотел бы прожить заново?",
+    "Каким ты хочешь, чтобы тебя запомнили?",
+    "Что для тебя значит любить и быть любимым?",
+    "О чём ты молчишь, когда отвечаешь «всё нормально»?",
+    "Что ты понял о жизни только недавно?",
+    "Какую часть себя ты только сейчас начинаешь принимать?",
+    "Если бы это был наш последний разговор — что бы ты сказал?",
+    "Что бы ты изменил в том, как тебя воспитывали?",
+    "Какое слово тебе хотелось бы услышать прямо сейчас?",
+    "Чего ты ждёшь от себя — и не можешь себе дать?",
+    "В какой момент ты почувствовал, что изменился навсегда?",
+    "Что бы ты сказал человеку, которого потерял?",
+    "Какой свой страх ты передаёшь, сам того не желая?",
+    "Что значит для тебя быть по-настоящему собой?",
+    "О чём ты сожалеешь, когда остаёшься наедине с собой?",
+    "Что ты хотел бы, чтобы тебе сказали в самый тяжёлый момент?",
+    "Какую часть себя ты прячешь даже от самых близких?",
+    "Что бы ты сделал, если бы знал, что тебя точно простят?",
+    "Чего ты боишься, что о тебе подумают?",
+    "Какой разговор ты так и не решился начать?",
+    "Что ты хотел бы изменить в себе, но боишься потерять?",
+    "Когда ты в последний раз чувствовал, что тебя по-настоящему видят?",
+    "Что бы ты сказал себе в самый одинокий день?",
+    "Какую любовь ты так и не смог выразить словами?",
+    "О чём ты плачешь, когда никто не видит?",
+    "Что ты до сих пор не можешь себе простить в отношениях?",
+    "Чего тебе не хватало в детстве, и чувствуешь ли ты это сейчас?",
+    "Что ты хотел бы услышать от человека напротив?",
+    "Какую свою мечту ты похоронил, и больно ли об этом вспоминать?",
+    "Что значит для тебя быть прощённым?",
+    "Какой страх управляет тобой чаще, чем тебе хотелось бы?",
+    "Что бы ты сказал тому, кто разбил тебе сердце?",
+    "Кем ты боишься оказаться на самом деле?",
+    "Что тебе труднее всего принять в том, как сложилась твоя жизнь?",
+    "Какую правду о близком человеке ты так и не сказал ему?",
+    "Что бы ты хотел исправить, пока ещё есть время?",
+    "Когда ты в последний раз чувствовал, что тебя любят без условий?",
+    "Что ты держишь внутри так долго, что почти забыл, каково без этого?",
+    "Какую боль ты до сих пор носишь из прошлого?",
+    "Что бы ты сказал родителю, которого больше нет или который далеко?",
+    "Чего ты больше всего боишься в конце жизни?",
+    "Что ты хотел бы, чтобы люди простили тебе?",
+    "Какую часть себя ты предал, чтобы кому-то понравиться?",
+    "Что для тебя самое страшное одиночество?",
+    "О чём ты жалеешь, что не сказал, пока было можно?",
+    "Что бы ты сделал, если бы у тебя остался один день?",
+    "Что делает тебя по-настоящему грустным, даже когда всё вроде бы хорошо?",
+    "Что ты скрываешь за своей силой?",
+    "Кем ты хотел бы стать, но так и не позволил себе?",
+    "Что бы ты хотел, чтобы я понял о тебе без слов?",
+    "Какой момент стыда ты носишь в себе годами?",
+    "Что ты хотел бы услышать от себя самого?",
+    "Чего ты так и не смог отпустить?",
+    "Что для тебя значит быть по-настоящему принятым?",
+    "Какую часть своей истории ты никогда никому не рассказывал?",
+    "Что бы ты сказал ребёнку, которым когда-то был?",
+    "Какой свой выбор ты считаешь предательством самого себя?",
+    "Что ты хотел бы, чтобы осталось после тебя?",
+    "О чём ты мечтаешь в самые тёмные моменты?",
+    "Что ты до сих пор ищешь, хотя не признаёшься в этом?",
+    "Какую правду ты боишься узнать о себе?",
+    "Что бы ты сказал человеку, которого подвёл?",
+    "Когда ты в последний раз чувствовал себя свободным от страха?",
+    "Что тебе мешает любить себя?",
+    "Какую рану ты прячешь под улыбкой?",
+    "Что ты хотел бы прожить иначе, если бы мог начать сначала?",
+    "Кого ты до сих пор не отпустил, хотя пора?",
+    "Что для тебя самое сложное в том, чтобы быть честным?",
+    "Какую часть себя ты надеешься, что я не замечу?",
+    "Что бы ты сказал тому, кого любишь, если бы не боялся?",
+    "Чего ты стыдишься так, что почти никогда об этом не думаешь?",
+    "Что бы ты хотел изменить в том, как ты любишь?",
+    "Какой страх ты пронёс через всю жизнь?",
+    "Что ты понял о себе, что тяжело носить?",
+    "Что бы ты сделал, если бы тебя никто не осуждал?",
+    "О какой утрате ты до сих пор не можешь говорить спокойно?",
+    "Что ты хотел бы, чтобы тебе сказали в детстве?",
+    "Какую свою мечту ты предал ради безопасности?",
+    "Что значит для тебя простить самого себя?",
+    "Чего ты ждёшь от человека напротив, но боишься попросить?",
+    "Что бы ты сказал, если бы знал, что это услышат в последний раз?",
+    "Какую часть себя ты учишься любить тяжелее всего?",
+    "Что ты несёшь в себе, чего никто не видит?",
+    "Что бы ты хотел отпустить уже сегодня?",
+    "Какой самый одинокий момент в твоей жизни?",
+    "Что для тебя значит быть любимым именно таким, какой ты есть?",
+    "О чём ты сожалеешь сильнее всего?",
+    "Что бы ты сказал себе через двадцать лет?",
+    "Какую правду ты наконец готов признать вслух?",
+    "Что ты хотел бы, чтобы человек напротив знал о тебе?",
+    "Чего ты боишься, что уже никогда не случится?",
+    "Что для тебя значит прожить жизнь не зря?",
+    "Что бы ты сказал самому близкому человеку, если бы это был последний шанс?",
+    "Какую часть себя ты прячешь, боясь, что её не полюбят?",
+    "Что ты до сих пор не простил тому, кто причинил тебе боль?",
+    "О чём ты жалеешь, что не успел почувствовать в полной мере?",
+    "Что бы ты хотел, чтобы осталось между нами после этого разговора?"
+  ]
+};
+
+const WILDS = [
+  "Нарисуйте портреты друг друга за минуту.",
+  "Вместе нарисуйте одну картинку на одном листе, не договариваясь, что это будет.",
+  "Сделайте общее фото, которое передаёт ваше настроение прямо сейчас.",
+  "Покажите последнее фото в галерее телефона и расскажите историю за ним.",
+  "Скажите каждому за столом по одному искреннему комплименту.",
+  "Поставьте песню, которая ассоциируется с каждым из игроков. (делают все)",
+  "Посмотрите друг другу в глаза молча в течение минуты.",
+  "Покажите жестами, без слов, как прошёл ваш день — пусть остальные угадают.",
+  "Придумайте вместе короткий тост за этот вечер и произнесите его.",
+  "Опишите соседа справа тремя словами, глядя ему в глаза.",
+  "Нарисуйте, каким вы видите настроение друг друга, и сравните.",
+  "Каждый называет, чем восхищается в человеке слева.",
+  "Придумайте вместе название для вашей сегодняшней компании.",
+  "Поменяйтесь местами с человеком напротив.",
+  "Вместе придумайте секретное приветствие-жест и повторите его все разом.",
+  "Расскажите по одному воспоминанию, связанному с кем-то за столом. (делают все)",
+  "Сделайте друг другу по одному предсказанию на ближайший год.",
+  "Нарисуйте на салфетке символ этого вечера и подарите соседу.",
+  "Каждый показывает фото, которым гордится, и объясняет почему.",
+  "Выберите вместе песню, которая станет гимном этого вечера.",
+  "Покажите соседу что-то на телефоне, что точно его рассмешит.",
+];
+
+const WILD_CHANCE = 0.14;
+let wildDeck = [], wildPos = 0;
+
+const state = { level:1, players:1, current:1, deck:[], pos:0 };
+
+const $ = s => document.querySelector(s);
+const screens = { start:$('#start'), players:$('#players'), game:$('#game'), end:$('#end') };
+
+function show(name){
+  Object.values(screens).forEach(s=>s.classList.remove('active'));
+  screens[name].classList.add('active');
+}
+
+function shuffle(arr){
+  const a=arr.slice();
+  for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+
+// ---- start -> players
+document.querySelectorAll('.level').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    state.level = +btn.dataset.level;
+    document.body.dataset.level = state.level;
+    $('#chosenLevel').textContent = state.level;
+    show('players');
+  });
+});
+$('#backToStart').addEventListener('click',()=>{ document.body.dataset.level = 1; show('start'); });
+
+// ---- players -> game
+document.querySelectorAll('.pcount').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    state.players = +btn.dataset.n;
+    startGame();
+  });
+});
+
+const LEVEL_NAMES = {1:'Знакомство',2:'Связь',3:'Откровение'};
+
+function startGame(){
+  state.deck = shuffle(QUESTIONS[state.level].map((_,i)=>i));
+  state.pos = 0;
+  state.current = 1;
+  wildDeck = shuffle(WILDS.map((_,i)=>i));
+  wildPos = 0;
+  document.body.dataset.wild = '';
+  document.body.dataset.intro = '1';
+  $('#question').dataset.started = '';
+  $('#lvlPill').textContent = `Уровень ${state.level} · ${LEVEL_NAMES[state.level]}`;
+  $('#question').textContent = 'Нажми, чтобы открыть первый вопрос';
+  $('#counter').textContent = '';
+  updateTurn(true);
+  show('game');
+}
+
+function updateTurn(initial){
+  const t = $('#turn');
+  if(state.players>1){
+    t.innerHTML = `<span class="dot"></span>Ход: Игрок ${state.current}`;
+  } else {
+    t.textContent = 'Разговор с собой';
+  }
+}
+
+function drawCard(){
+  const qIndex = state.deck[state.pos];
+  state.pos++;
+
+  const q = $('#question');
+  q.textContent = QUESTIONS[state.level][qIndex];
+  q.classList.remove('draw'); void q.offsetWidth; q.classList.add('draw');
+  $('#counter').textContent = `${state.pos} / ${state.deck.length}`;
+}
+
+// shown once every card of the level has been seen
+function showEnd(){
+  document.body.dataset.wild = '';
+  document.body.dataset.intro = '';
+  $('#endLevel').textContent = LEVEL_NAMES[state.level];
+  show('end');
+}
+
+// joker: a shared fiery action card that randomly interrupts the game (2+ players)
+function showJoker(){
+  if(wildPos >= wildDeck.length){ wildDeck = shuffle(WILDS.map((_,i)=>i)); wildPos = 0; }
+  const idx = wildDeck[wildPos]; wildPos++;
+  document.body.dataset.wild = '1';
+  $('#turn').textContent = '';                 // it's a group action, no single turn
+  const q = $('#question');
+  q.textContent = WILDS[idx];
+  q.classList.remove('draw'); void q.offsetWidth; q.classList.add('draw');
+}
+
+// tap / Space / Enter: next card AND pass the turn to the next player
+function nextCard(){
+  const firstReveal = $('#question').dataset.started!=='1';
+  const wasJoker = document.body.dataset.wild==='1';
+  $('#question').dataset.started='1';
+  document.body.dataset.wild='';
+  document.body.dataset.intro='';
+
+  // a joker can randomly fly out instead of a question — only 2+ players,
+  // never on the first card, never right after another joker, and not when
+  // the deck is already used up (then we end the level instead)
+  if(!firstReveal && !wasJoker && state.players>1
+     && state.pos < state.deck.length && Math.random()<WILD_CHANCE){
+    showJoker();
+    return;
+  }
+  // end of level: every card has been seen
+  if(!firstReveal && state.pos >= state.deck.length){
+    showEnd();
+    return;
+  }
+  if(!firstReveal && state.players>1){
+    state.current = state.current % state.players + 1;
+  }
+  drawCard();
+  updateTurn();
+}
+
+// skip button: another question for the SAME player (no turn change, no joker)
+function skipCard(){
+  $('#question').dataset.started='1';
+  document.body.dataset.wild='';
+  document.body.dataset.intro='';
+  if(state.pos >= state.deck.length){ showEnd(); return; }
+  drawCard();
+  updateTurn();
+}
+
+// advance on tap / key, but not when tapping the back or skip buttons
+$('#game').addEventListener('click', e=>{
+  if(e.target.closest('.back') || e.target.closest('.skip')) return;
+  nextCard();
+});
+document.addEventListener('keydown', e=>{
+  if(!screens.game.classList.contains('active')) return;
+  if(e.code==='Space'||e.code==='Enter'){ e.preventDefault(); nextCard(); }
+});
+
+$('#skip').addEventListener('click', e=>{
+  e.stopPropagation();
+  skipCard();
+});
+
+$('#backToMenu').addEventListener('click',(e)=>{
+  e.stopPropagation();
+  $('#question').dataset.started='';
+  document.body.dataset.wild='';
+  document.body.dataset.intro='';
+  document.body.dataset.level = 1;
+  show('start');
+});
+
+// end screen
+$('#restart').addEventListener('click', ()=> startGame());   // fresh reshuffled deck, same level
+$('#toMenu').addEventListener('click', ()=>{
+  document.body.dataset.intro='';
+  document.body.dataset.wild='';
+  document.body.dataset.level = 1;
+  show('start');
+});
+</script>
+</body>
+</html>
